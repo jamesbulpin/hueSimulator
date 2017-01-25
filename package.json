@@ -14,7 +14,10 @@
     "express": "3.x",
     "minimist": "0.0.8",
     "cron": "*",
-    "request": "*"
+    "request": "*",
+    "node-blink1": "0.2.2",
+    "tinycolor2": "1.4.1",
+    "rpi-gpio": "0.7.0"
   },
   "engines": {
     "node": ">=0.8.x",

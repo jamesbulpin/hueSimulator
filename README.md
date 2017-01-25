@@ -2,6 +2,8 @@
 
 As I started development of hueJS before getting my Hue starter kit, i needed to test my code with a simulated bridge.
 
+This version of the simulator has been extended to control a locally-connected Blink1 as Hue light 1, and simulate a Hue Tap's main button push using an active-low, pulled-up input in GPIO pin 18. This therefore assumes the simulatro runs on a Raspberry Pi.
+
 ## Install
 
 Using npm:
@@ -45,6 +47,7 @@ At the moment, all routes from the hue API are available, except schedules.
 ## Contributors
 [Rodney Rehm](https://github.com/rodneyrehm)
 [galactoise](https://github.com/galactoise)
+[James Bulpin](https://github.com/jamesbulpin)
 
 ## Dependencies
 
@@ -52,4 +55,9 @@ At the moment, all routes from the hue API are available, except schedules.
 [request](https://github.com/mikeal/request)
 [minimist](https://github.com/substack/minimist)
 [expressjs](https://github.com/visionmedia/express)
+[rpi-gpio](https://github.com/JamesBarwell/rpi-gpio.js)
+[tinycolor2](http://bgrins.github.io/TinyColor/)
+[node-blink1](https://github.com/sandeepmistry/node-blink1)
+
+Additionally the raspi-gpio tool must be available.
 

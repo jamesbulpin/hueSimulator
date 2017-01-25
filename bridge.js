@@ -1,7 +1,10 @@
 var express = require("express");
 var app = express();
 var FS = require("fs");
-
+var tinycolor = require("tinycolor2");
+var Blink1 = require('node-blink1');
+var child_process = require("child_process");
+var gpio = require('rpi-gpio');
 var CronJob = require('cron').CronJob;
 var request = require('request');
 
@@ -55,6 +58,8 @@ var whitelist = function(req, res, next) {
     }
 };
 
+// Set up web server
+
 app.use(express.logger());
 app.use(express.static(__dirname + '/public_html'));
 app.use(function(request, response, next) {
@@ -101,36 +106,6 @@ app.set('state', {
                 "7": "none",
                 "8": "none"
             }
-        },
-        "2": {
-            "state": {
-                "on": true,
-                "bri": 254,
-                "hue": 33536,
-                "sat": 144,
-                "xy": [0.3460, 0.3568],
-                "ct": 201,
-                "alert": "none",
-                "effect": "none",
-                "colormode": "hs",
-                "reachable": true
-            },
-            "type": "Extended color light",
-            "name": "Hue Lamp 2",
-            "modelid": "LCT001",
-            "manufacturername": "Philips",
-            "uniqueid": "c4:03:ae:98:28:d8:cc:af-0b",
-            "swversion": "65003148",
-            "pointsymbol": {
-                "1": "none",
-                "2": "none",
-                "3": "none",
-                "4": "none",
-                "5": "none",
-                "6": "none",
-                "7": "none",
-                "8": "none"
-            }
         }
     },
     "groups": {
@@ -145,7 +120,7 @@ app.set('state', {
                 "effect": "none",
                 "colormode": "xy"
             },
-            "lights": ["1", "2"],
+            "lights": ["1"],
             "name": "Group 1"
         }
     },
@@ -176,7 +151,40 @@ app.set('state', {
         "linkbutton": false,
         "portalservices": false
     },
-    "schedules": {}
+    "schedules": {},
+    "sensors": {
+        "1": {
+            "state": {
+                "daylight": null,
+                "lastupdated": "none"
+            },
+            "config": {
+                "on": true,
+                "configured": false,
+                "sunriseoffset": 30,
+                "sunsetoffset": -30
+            },
+            "name": "Daylight",
+            "type": "Daylight",
+            "modelid":"PHDL00",
+            "manufacturername": "Philips",
+            "swversion": "1.0"
+        },
+        "2": {
+            "state": {
+                "buttonevent": 34,
+                "lastupdated": "2017-01-24T17:01:11"
+            },
+            "config": {
+                "on": true
+            },
+            "name": "Hue tap switch 1",
+            "type": "ZGPSwitch",
+            "modelid": "ZGPSWITCH",
+            "manufacturername": "Philips",
+            "uniqueid": "00:00:00:00:00:43:fd:37-f2"
+        }
+    }
 });
 
 app.get('/', function(req, res) {
@@ -276,6 +284,16 @@ app.put('/api/:username/lights/:id/state', whitelist, function(req, res) {
     var id = req.params.id;
     var state = app.get('state').lights[id].state;
     var response = updateProperties(state, req.body, "/lights/" + id + "/state/");
+    //console.log(id + " H=" + state.hue + " L=" + state.bri + " s=" + state.sat);
+    var col = tinycolor.fromRatio({ h: state.hue/65536.0, s: state.sat/254.0, v: state.bri/254.0 });
+
+    var rgb = col.toRgb()
+    var blink1 = new Blink1();
+    //console.log("Setting blink(1) to", col, rgb.r, rgb.g, rgb.b);
+    blink1.fadeToRGB(0, rgb.r, rgb.g, rgb.b);
+    blink1.close();
+
+    //console.log(col.toString("rgb"));
     res.send(200, JSON.stringify(response));
 });
 
@@ -680,6 +698,22 @@ app.get('/description.xml', function(request, response) {
     });
 });
 
+
+// -- Sensors API
+
+// get all sensors
+app.get('/api/:username/sensors', whitelist, function(req, res) {
+    // get sensors state
+    var sensors = app.get('state').sensors;
+    res.send(200, JSON.stringify(sensors));
+});
+
+// get sensor
+app.get('/api/:username/sensors/:id', whitelist, function(req, res) {
+    var id = req.params.id;
+    res.send(200, JSON.stringify(app.get('state').sensors[id]));
+});
+
 function localAddress() {
     var os = require('os');
     var ifaces = os.networkInterfaces();
@@ -698,5 +732,44 @@ app.run = function(options) {
         console.log('hue simulator listening @ ' + (options.hostname || localAddress()) + ':' + options.port);
     });
 }
+
+// Set up GPIO
+const BUTTON_GPIO_PIN = 18;
+gpio.setMode(gpio.MODE_BCM);
+gpio.on('change', pin_change);
+
+var lastState = {};
+lastState[BUTTON_GPIO_PIN] = -1;
+
+function pin_change(channel, value) {
+  //console.log('Channel ' + channel + ' value is now ' + value);
+  if (channel in lastState) {
+    if (value != lastState[channel]) {
+      if (!value) {
+        if (channel == BUTTON_GPIO_PIN) {
+          app.get('state').sensors["2"].state.lastupdated = (new Date()).toISOString();
+          console.log("Tap!");
+        }
+      }
+      lastState[channel] = value;
+    }
+  }
+}
+
+function readInitialValue(p, err) {
+  if (err) console.log("gpio.setup(" + p + ") returned error: " + err);
+  gpio.read(p, function(err, value) {
+    if (err) console.log("gpio.read(" + p + ") returned error: " + err);
+    lastState[p] = null;
+    console.log("GPIO pin " + p + " initial value is " + value);
+    pin_change(p, value);
+  });
+}
+
+console.log("Setting up pin " + BUTTON_GPIO_PIN + " as input");
+child_process.exec("raspi-gpio set " + BUTTON_GPIO_PIN + " pu", function(p, error, stdout, stderr) {
+  if (error) console.log("'raspi-gpio set " + p + " pu' returned error: " + error);
+  gpio.setup(p, gpio.DIR_IN, gpio.EDGE_BOTH, readInitialValue.bind(null, p));
+}.bind(null, BUTTON_GPIO_PIN));
 
 module.exports = app;
